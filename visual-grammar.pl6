@@ -1,7 +1,5 @@
 use v6.c;
 
-use MONKEY-SEE-NO-EVAL;
-
 use GTK::Application;
 
 use VisualGrammar;
