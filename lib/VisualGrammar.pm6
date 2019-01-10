@@ -147,19 +147,18 @@ CODE
       unless %!tags{$_}:exists {
         %!tags{$_} = GTK::TextTag.new($_);
         if $_ eq 'TOP' {
-          %!tags<TOP>.background-rgba = GTK::Compat::RGBA.new-rgb(
-            red => 0, green => 0, blue => 128
-          );
-          %!tags<TOP>.foreground-rgba = GTK::Compat::RGBA.new-rgb(
-            red => 200, green => 200, blue => 200
-          );
+          %!tags<TOP>.background-set = True;
+          %!tags<TOP>.foreground-set = True;
+          %!tags<TOP>.background-rgba = GTK::Compat::RGBA.new-rgb(0, 0, 128);
+          %!tags<TOP>.foreground-rgba = GTK::Compat::RGBA.new-rgb(200, 200, 200);
         } else {
           # ...
         }
+        $!tbuffer.tag-table.add(%!tags{$_});
       }
     }
 
-    self.apply_tags('TOP', $results) with $results;
+    self.apply-tags('TOP', $results) with $results;
   }
 
   submethod BUILD (:$!app, :$window) {
