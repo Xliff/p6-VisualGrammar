@@ -6,14 +6,17 @@ use GTK::Compat::Types;
 use GTK::Raw::Types;
 
 use GTK::Application;
+use GTK::Box;
 use GTK::Clipboard;
 use GTK::Dialog::FileChooser;
 use GTK::Menu;
 use GTK::MenuBar;
 use GTK::Pane;
 use GTK::ScrolledWindow;
+use GTK::TextTag;
 use GTK::TextView;
-use GTK::Box;
+
+use GTK::Utils::MenuBuilder;
 
 class VisualGrammar {
   has GTK::Application    $!app;
@@ -28,21 +31,27 @@ class VisualGrammar {
   has GTK::Clipboard      $!clip;
   has GTK::TextBuffer     $!mbuffer;
   has GTK::TextBuffer     $!tbuffer;
-  has GTK::TextTagsTable  $!tags;
 
   has @!rules;
   has %!tags;
 
   has $!paste-text;
 
-  method quit       { $!app.exit        }
-  method close-file { $!gedit.text = '' }
-
   method FALLBACK ($name, |c) {
     say "NYO -- { $name } method NYI!";
   }
 
-  method !append-buffer ($b, $v, $text) {
+  method quit              { $!app.exit               }
+  method close-file        { $!gedit.text = ''        }
+  method open-grammar-file { self.slurp-file($!gedit) }
+  method open-text-file    { self.slurp-file($!tview) }
+  method save-grammar-file { self.spurt-file($!gedit) }
+  method save-text-file    { self.spurt-file($!tview) }
+  method clear-msgs        { $!mview.text = '';       }
+
+  method paste             { $!tview.text = $!clip.wait_for_text; }
+
+  method !append-buffer ($b is rw, $v, $text) {
     $b //= $v.buffer;
     $b.insert( $b.get_end_iter, "\n{ $text }" );
   }
@@ -51,28 +60,29 @@ class VisualGrammar {
     self!append-buffer($!mbuffer, $!mview, $text);
   }
 
-  method clear-msgs {
-    $!mview.text = '';
+  method !format-code ($code) {
+    my @c;
+    my $len = $code.lines.elems.Str.chars;
+    for $code.lines.kv -> $k, $v {
+      @c.push: "{ $k.fmt("\%{$len}d") }: { $v }";
+    }
+    @c.join("\n");
   }
 
-  method paste {
-    $!tview.text = $!clip.wait_for_text;
-  }
-
-  method open-file {
+  method slurp-file($tv) {
     my $fc = GTK::Dialog::FileChooser.new(
       'Select Grammar file', $!app.window, GTK_FILE_CHOOSER_ACTION_OPEN
     );
-    $fc.response.tap:          { $!gedit.text = $fc.filename.IO.open.slurp;
+    $fc.response.tap:          { $tv.text = $fc.filename.IO.slurp;
                                  $fc.hide };
     $fc.run;
   }
 
-  method save-file {
+  method spurt-file($tv) {
     my $fc = GTK::Dialog::FileChooser.new(
       'Save Grammar file', $!app.window, GTK_FILE_CHOOSER_ACTION_SAVE
     );
-    $fc.response.tap:          { $fc.filename.IO.open(:w).spurt($!gedit.text);
+    $fc.response.tap:          { $fc.filename.IO.spurt($tv.text);
                                  $fc.hide };
     $fc.run;
   }
@@ -80,11 +90,13 @@ class VisualGrammar {
   method apply-tags($rule, $match) {
     sub get_range ($match) {
       (
-        $!buffer.get_iter_at_offset($match.from),
-        $!buffer.get_iter_at_offset($match.to)
+        $!tbuffer.get_iter_at_offset($match.from),
+        $!tbuffer.get_iter_at_offset($match.to)
       );
-    );
-    
+    }
+
+    %!tags.gist.say;
+
     $!tbuffer.apply_tag( %!tags{$rule}, |get_range($match) );
 
     # Apply variant to positionals -- Complexifies because we DO NOT know
@@ -92,43 +104,53 @@ class VisualGrammar {
     # tag we have to define during the loop, which means we must be as lazy as
     # possible -- Encode sub tags as "{ $rule }-{ $num }", maybe?
     # my $pos = 0;
-    # for $match -> {
+    # for $match sub {
       # $!tbuffer.apply_tag(
     # }
 
     # Descend keys.
-    self.apply-tags($_, $match{$_}) for $match.keys;
+    #self.apply-tags($_, $match{$_}) for $match.keys;
   }
 
   method refresh-grammar {
-    CATCH { default { self!append-m( .message ) } }
+    CATCH {
+      default {
+        self!append-m( .message );
+        self!append-m( Backtrace.new.Str );
+        say .message;
+        say Backtrace.new.Str;
+      }
+    }
 
     my ($text, $gtext) = ($!tview.text, $!gedit.text);
     my $name = ($gtext ~~ /^^ \s* 'grammar' \s+ (\w+)/ // [])[0].Str;
     die "Cannot find grammar name!\n" without $name;
-    my $code = qq:to/CODE/;
-{ $gtext }
-\@!rules = { $name }.^methods(:local).grep( * ne 'TOP' ).map( *.name ).sort;
+    my $code = qq:to/CODE/.chomp;
+my { $gtext }
+say \$text;
+\@!rules = { $name }.^methods(:local).map( *.name ).sort;
 { $name }.parse(\$text)
 CODE
 
-    @!rules.unshift: 'TOP';
+    @!rules.unshift('TOP');
     # Create list of rules, and colorizations
     #self.color-rules;
 
+    self!append-m( "Evaluating:\n{ self!format-code($code) }" );
+
     my $results = EVAL $code;
+    self!append-m("Rules in grammar: { @!rules.join(', ') }");
     self!append-m($results.gist);
     $!tbuffer //= $!tview.buffer;
     # - Create text tags for all rules, unless already defined.
     for @!rules {
       unless %!tags{$_}:exists {
         %!tags{$_} = GTK::TextTag.new($_);
-        $!tags.add($!tags{$_});
         if $_ eq 'TOP' {
-          %!tags<TOP>.backgraound-rgba = GTK::Compat::RGBA.new(
+          %!tags<TOP>.background-rgba = GTK::Compat::RGBA.new-rgb(
             red => 0, green => 0, blue => 128
           );
-          %!tags<TOP>.foreground-rgba = GTK::Compat::RGBA.new(
+          %!tags<TOP>.foreground-rgba = GTK::Compat::RGBA.new-rgb(
             red => 200, green => 200, blue => 200
           );
         } else {
@@ -137,69 +159,35 @@ CODE
       }
     }
 
-    with $results {
-      # - Go through each rule object in a TOP-DOWN mannor.
-      #   - Grab start iter from Match object via:
-      #       my ($siter, $eiter) = (
-      #         $!tview.buffer.get_iter_at_offset(.from),
-      #         $!tview.buffer.get_iter_at_offset(.to)
-      #       );
-      #   - Apply tag for each rule via:
-      #     $!tbuffer.apply_tag($tag, $siter, $eiter);
-
-      # Apply tag to whole rule.
-      self.apply_tags('TOP', $results);
-    }
+    self.apply_tags('TOP', $results) with $results;
   }
 
   submethod BUILD (:$!app, :$window) {
-    # my $menubar = MenuBuilder.new(:menubar, {
-    #   File => [
-    #     Open  => { clicked => -> { self.open-file  } },
-    #     Save  => { clicked => -> { self.save-file  } },
-    #     Close => { clicked => -> { self.close-file } },
-    #     Quit  => { clicked => -> { self.quit       } },
-    #   ],
-    #   Edit => [
-    #     Cut   => { clicked => -> { self.cut-selected  } },
-    #     Copy  => { clicked => -> { self.copy-selected } },
-    #     Paste => { clicked => -> { self.paste         } }.
-    #   ]
-    #   View => [
-    #     'Clear Messages' => { clicked => -> { self.clear-msgs } },
-    #   ],
-    #   Refresh => { clicked => -> { self.refresh-grammar } }
-    # }
-
-    my $menubar = GTK::MenuBar.new(
-      GTK::MenuItem.new('File',
-        :submenu(
-          GTK::Menu.new(
-            GTK::MenuItem.new('Open',  :clicked(-> { self.open-file  })),
-            GTK::MenuItem.new('Save',  :clicked(-> { self.save-file  })),
-            GTK::MenuItem.new('Close', :clicked(-> { self.close-file })),
-            GTK::MenuItem.new('Quit',  :clicked(-> { self.quit       }))
-          )
-        ),
-      ),
-      GTK::MenuItem.new('Edit',
-         :submenu(
-           GTK::Menu.new(
-             GTK::MenuItem.new('Cut',   :clicked(-> { self.cut-selected  })),
-             GTK::MenuItem.new('Copy',  :clicked(-> { self.copy-selected })),
-             GTK::MenuItem.new('Paste', :clicked(-> { self.paste         }))
-           )
-         )
-      ),
-      GTK::MenuItem.new('View',
-        :submenu(
-          GTK::Menu.new(
-            GTK::MenuItem.new('Clear Messages', :clicked(-> { self.clear-msgs }))
-          )
-        )
-      ),
-      GTK::MenuItem.new('Refresh', :clicked(-> { self.refresh-grammar }))
-    );
+    my $mb = GTK::Utils::MenuBuilder.new(:bar, TOP => [
+      File => [
+        'Open Grammar'   => { 'do' => -> { self.open-grammar-file  } },
+        'Save Grammar'   => { 'do' => -> { self.save-grammar-file  } },
+        '-'              => False,
+        'Open Text'      => { 'do' => -> { self.open-text-file     } },
+        'Save Text'      => { 'do' => -> { self.save-text-file     } },
+        '-'              => False,
+        Close            => { 'do' => -> { self.close-file         } },
+        Quit             => { 'do' => -> { self.quit               } },
+      ],
+      Edit => [
+        Cut              => { 'do' => -> { self.cut-selected       } },
+        Copy             => { 'do' => -> { self.copy-selected      } },
+        Paste            => { 'do' => -> { self.paste              } },
+      ],
+      View => [
+        'Clear Messages' => { do => -> { self.clear-msgs         } },
+      ],
+      Grammar => [
+        Refresh          => { do => -> { self.refresh-grammar    } },
+        '-'              => False,
+        'Auto Refresh'   => { :check }
+      ]
+    ]);
 
     my $vbox = GTK::Box.new-vbox;
     ($!hpane, $!vpane) = (GTK::Pane.new-hpane, GTK::Pane.new-vpane);
@@ -222,13 +210,11 @@ CODE
     $!hpane.add1($!vpane);
     $!hpane.add2($!tscroll);
 
-    $!tags = GTK::TextTagsTable.new;
-    $!tview.buffer.tag-table = $!tags;
     $!clip = GTK::Clipboard.new( GDK_SELECTION_CLIPBOARD );
     $!tview.paste-clipboard.tap({ self.paste });
 
-    $vbox.add($menubar);
-    $vbox.add($!hpane);
+    $vbox.add($mb.menu);
+    $vbox.pack_start($!hpane, True, True);
     $window.add($vbox);
   }
 }
