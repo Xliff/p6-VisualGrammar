@@ -46,6 +46,9 @@ class VisualGrammar {
   has $!light-fg;
   has $!tags;
 
+  # See https://github.com/jnthn/grammar-debugger/blob/master/lib/Grammar/Tracer.pm6
+  # as to how this can be further improved, in terms of tracking matched AND failed matches!
+
   method FALLBACK ($name, |c) {
     say "VisualGrammar -- { $name } method NYI!";
   }
