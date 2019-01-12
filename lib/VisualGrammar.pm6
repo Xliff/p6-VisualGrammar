@@ -74,15 +74,15 @@ class VisualGrammar {
         %!colors{$r}<bg> = GTK::Compat::RGBA.new-rgb(|$color.rgb);
       }
 
-      my $tags = $!tview.buffer.tag-table;
-      without $tags.lookup($r) {
+      #my $tags = $!tview.buffer.tag-table;
+      without $!tags.lookup($r) {
         say "---» Creating tag \"{ $r }\"";
         my $tag = GTK::TextTag.new($r);
         $tag.background-set = True;
         $tag.foreground-set = True;
         $tag.background-rgba = %!colors{$r}<bg>;
         $tag.foreground-rgba = %!colors{$r}<fg>;
-        $tags.add($tag);
+        $!tags.add($tag);
       }
     }
   }
@@ -100,15 +100,21 @@ class VisualGrammar {
   method !append-buffer ($b is rw, $v, $text) {
     $b //= $v.buffer;
     $b.insert( $b.get_end_iter, "\n{ $text }" );
-  }
-
-  method !append-legend {
-    # Color legend replaces this list.
-    self!append-m("Rules in grammar: { @!rules.join(', ') }");
+    #$v.scroll_to_bottom;
   }
 
   method !append-m ($text) {
     self!append-buffer($!mbuffer, $!mview, $text);
+  }
+
+  method !append-legend {
+    # Color legend replaces this list.
+    self!append-m("Rules in grammar:\n");
+    # Why Slip when I omit the use of the intermediary $tags?
+    for @!rules {
+      next if $_ eq 'TOP';
+      $!mbuffer.append_with_tag("\t{ $_ }\n", $!tags.lookup($_));
+    }
   }
 
   method !format-code ($code) {
@@ -140,16 +146,24 @@ class VisualGrammar {
 
   method apply-tags($rule, $match) {
     sub get_range ($match) {
-      (
-        $!tbuffer.get_iter_at_offset($match.from),
-        $!tbuffer.get_iter_at_offset($match.to)
-      );
+      my $r;
+      # The with blocks shouldn't be needed!
+      with $match.from {
+        with $match.to {
+          $r = (
+            $!tbuffer.get_iter_at_offset($match.from),
+            $!tbuffer.get_iter_at_offset($match.to)
+          );
+        }
+      }
+      $r;
     }
 
-    my $tags = $!tview.buffer.tag-table;
-    my $tag = $tags.lookup($rule);
+    #my $tags = $!tview.buffer.tag-table;
+    my $tag = $!tags.lookup($rule);
     unless $rule eq 'TOP' {
-      $!tbuffer.apply_tag( $tag, |get_range($match) );
+      my $r = |get_range($match);
+      $!tbuffer.apply_tag( $tag, |get_range($match) ) if $r.grep( *.defined );
     }
 
 
@@ -178,6 +192,7 @@ class VisualGrammar {
     CATCH {
       default {
         self!append-m( .message );
+        # Starting at index 3 seems to work the best.
         my $bt = Backtrace.new.list.grep({ $_.is-setting.not && $_.is-hidden.not })[1..*].Str;
         self!append-m( $bt );
         say .message;
@@ -279,6 +294,7 @@ CODE
     $!vpane.add2($!mscroll);
     $!hpane.add1($!vpane);
     $!hpane.add2($!tscroll);
+    $!mview.autoscroll = True;
 
     # $!clip = GTK::Clipboard.new( GDK_SELECTION_CLIPBOARD );
     # $!tview.paste-clipboard.tap({ self.paste });
