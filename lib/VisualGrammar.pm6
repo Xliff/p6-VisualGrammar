@@ -221,7 +221,7 @@ CODE
     $!tbuffer //= $!tview.buffer;
 
     # Set edit area read-only until user rechecks the menu.
-    #$!menu.items<editable-text>.active = $!tview.editable = False;
+    $!menu.items<editable-text>.active = $!tview.editable = False;
     $!tview.editable = False;
 
     # Instead of waiting, could always prebuild for $/0 .. $/9
