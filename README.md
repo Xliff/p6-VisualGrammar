@@ -40,7 +40,7 @@ $ cd p6-VisualGrammar
 $ perl6 --stagestats -I../cairo-p6/lib -I../p6-Pango/lib -I../p6-GtkPlus/lib -Ilib visual-grammar.pl6
 ```
 
-Please share compile times and your environment from the last command, [here](/../../issues/1), if you like.
+Please share compile times and your environment from the last command, [here](/../../issues/1).
 
 I will work on making this all less complex, in time. Thanks for your interest!
 
