@@ -1,12 +1,12 @@
 use v6.c;
 
-use MONKEY-SEE-NO-EVAL;
-
 use GTK::Compat::Types;
 use GTK::Raw::Types;
 
 use Color;
 use RandomColor;
+
+use Evals;
 
 use GTK::Application;
 use GTK::Box;
@@ -58,42 +58,84 @@ class VisualGrammar {
     self!buildUI($window, $width, $height);
   }
 
+  method !get-new-color {
+    state $count = 0;
+    my ($color, $collided) = (0);
+    repeat {
+      $color = RandomColor.new(
+        seed => SEED + $count++, format => 'color', count => 1
+      ).list[0];
+
+      # Check for color collision.
+      $collided = %!colors.values.map( *<bg> ).grep({
+        my $r = False;
+        if .defined {
+          my ($r, $g, $b) = $color.rgb;
+          my ($rp, $gp, $bp) =
+            (($_.red, $_.green, $_.blue) »*« (255 xx 3))».Int;
+          $r = [&&](
+            $rp -  5 <= $r <= $rp +  5,
+            $gp -  5 <= $g <= $gp +  5,
+            $bp -  5 <= $b <= $bp +  5
+          )
+        }
+        $r;
+      }).elems;
+    } until $collided.not;
+    $color;
+  }
+
+  method !add-rule-color($r) {
+    without %!colors{$r} {
+      my $color = self!get-new-color;
+      %!colors{$r}<fg> = $color.rgb.list.any > 220 ??
+        $!dark-fg !! $!light-fg;
+      %!colors{$r}<bg> = GTK::Compat::RGBA.new-rgb(|$color.rgb);
+    }
+
+    without $!tags.lookup($r) {
+      say "---» Creating tag \"{ $r }\"";
+      my $tag = GTK::TextTag.new($r);
+      $tag.background-set = True;
+      $tag.foreground-set = True;
+      $tag.background-rgba = %!colors{$r}<bg>;
+      $tag.foreground-rgba = %!colors{$r}<fg>;
+      $!tags.add($tag);
+    }
+  }
+
   method !update-colors {
     unless %!colors<TOP> {
       %!colors<TOP><bg> = GTK::Compat::RGBA.new-rgb(0, 0, 128);
       %!colors<TOP><fg> = $!light-fg;
     }
+    unless %!colors<FAIL> {
+      %!colors<FAIL><bg> = GTK::Compat::RGBA.new-rgb(255, 0, 0);
+      %!colors<FAIL><fg> = $!light-fg;
+    }
 
     my $count = 0;
     for @!rules.sort -> $r {
       next if $r eq 'TOP';
-      without %!colors{$r} {
-        my ($color) = RandomColor.new(
-          seed => SEED + $count++, format => 'color', count => 1
-        ).list;
-
-        %!colors{$r}<fg> = $color.rgb.list.any > 220 ??
-          $!dark-fg !! $!light-fg;
-        %!colors{$r}<bg> = GTK::Compat::RGBA.new-rgb(|$color.rgb);
-      }
-
-      #my $tags = $!tview.buffer.tag-table;
-      without $!tags.lookup($r) {
-        say "---» Creating tag \"{ $r }\"";
-        my $tag = GTK::TextTag.new($r);
-        $tag.background-set = True;
-        $tag.foreground-set = True;
-        $tag.background-rgba = %!colors{$r}<bg>;
-        $tag.foreground-rgba = %!colors{$r}<fg>;
-        $!tags.add($tag);
-      }
+      self!add-rule-color($r);
     }
   }
 
+  multi method open-grammar-file($filename) {
+    say "Cannot open '$filename'" unless $filename.IO.e;
+    $!gedit.text = $filename.IO.slurp;
+  }
+
+  multi method open-text-file($filename) {
+    say "Cannot open '$filename'" unless $filename.IO.e;
+    $!tview.text = $filename.IO.slurp;
+  }
+
+  multi method open-grammar-file { self.slurp-file($!gedit) }
+  multi method open-text-file    { self.slurp-file($!tview) }
+
   method quit              { $!app.exit               }
   method close-file        { $!gedit.text = ''        }
-  method open-grammar-file { self.slurp-file($!gedit) }
-  method open-text-file    { self.slurp-file($!tview) }
   method save-grammar-file { self.spurt-file($!gedit) }
   method save-text-file    { self.spurt-file($!tview) }
   method clear-msgs        { $!mview.text = '';       }
@@ -114,19 +156,13 @@ class VisualGrammar {
     # Color legend replaces this list.
     self!append-m("Rules in grammar:\n");
     # Why Slip when I omit the use of the intermediary $tags?
+    my $row = 1;
     for @!rules {
       next if $_ eq 'TOP';
-      $!mbuffer.append_with_tag("\t{ $_ }\n", $!tags.lookup($_));
+      $!mbuffer.append("\t");
+      $!mbuffer.append_with_tag("\t{ $_ }", $!tags.lookup($_));
+      #$!mbuffer.append("\n") if $row++ % 5;
     }
-  }
-
-  method !format-code ($code) {
-    my @c;
-    my $len = $code.lines.elems.Str.chars;
-    for $code.lines.kv -> $k, $v {
-      @c.push: "{ $k.fmt("\%{$len}d") }: { $v }";
-    }
-    @c.join("\n");
   }
 
   method slurp-file($tv) {
@@ -147,7 +183,18 @@ class VisualGrammar {
     $fc.run;
   }
 
-  method apply-tags($rule, $match) {
+  method apply-tag-to-end($rule, Int $offset) {
+    my $tag;
+    return False unless $tag = $!tags.lookup($rule);
+    my $r = (
+      $!tbuffer.get_iter_at_offset($offset),
+      $!tbuffer.get_end_iter
+    );
+    $!tbuffer.apply_tag( $tag, |$r );
+    True;
+  }
+
+  method apply-tags-from-match($rule, $match) {
     sub get_range ($match) {
       my $r;
       # The with blocks shouldn't be needed!
@@ -166,7 +213,10 @@ class VisualGrammar {
     my $tag = $!tags.lookup($rule);
     unless $rule eq 'TOP' {
       my $r = |get_range($match);
-      $!tbuffer.apply_tag( $tag, |get_range($match) ) if $r.grep( *.defined );
+      next unless $r.grep( *.defined );
+      # In the case of $<name>=... inside regex.
+      self!add-rule-color($rule) unless %!colors{$rule};
+      $!tbuffer.apply_tag( $tag, |$r );
     }
 
 
@@ -179,11 +229,11 @@ class VisualGrammar {
     given $match {
       when Array {
         for $match.List -> $m {
-          self.apply-tags($_, $m{$_}) for $m.keys;
+          self.apply-tags-from-match($_, $m{$_}) for $m.keys;
         }
       }
       when Match {
-        self.apply-tags($_, $match{$_}) for $match.keys
+        self.apply-tags-from-match($_, $match{$_}) for $match.keys
       }
       default {
         say "Don't know how to handle '{ .^name }'";
@@ -196,25 +246,23 @@ class VisualGrammar {
       default {
         self!append-m( .message );
         # Starting at index 3 seems to work the best.
-        my $bt = Backtrace.new.list.grep({ $_.is-setting.not && $_.is-hidden.not })[1..*].Str;
+        my $bt = Backtrace.new.list.grep({
+          $_.is-setting.not && $_.is-hidden.not
+        })[2..*].Str;
         self!append-m( $bt );
         say .message;
         say $bt;
       }
     }
 
-    my ($text, $gtext) = ($!tview.text, $!gedit.text);
-    my $name = ($gtext ~~ /^^ \s* 'grammar' \s+ (\w+)/ // [])[0].Str;
-    die "Cannot find grammar name!\n" without $name;
-    my $code = qq:to/CODE/.chomp;
-my { $gtext }
-\@!rules = { $name }.^methods(:local).map( *.name ).sort;
-{ $name }.parse(\$text)
-CODE
+    # Can put this behind an option.
+    #self!append-m( "Evaluating:\n{ self!format-code($code) }" );
 
-    self!append-m( "Evaluating:\n{ self!format-code($code) }" );
+    my @tmp-rules;
+    my $results = run-grammar($!tview.text, $!gedit.text, @tmp-rules);
+    @tmp-rules.push: 'FAIL' unless $results[0].key eq 'TOP';
+    @!rules = @tmp-rules;
 
-    my $results = EVAL $code;
     self!update-colors;
     self!append-legend;
     #self!append-m($results.gist);
@@ -227,7 +275,18 @@ CODE
     # Instead of waiting, could always prebuild for $/0 .. $/9
     # self.update-positional-colors($results{$_}) with $results;
 
-    self.apply-tags('TOP', $results) with $results;
+    my $failed = False;
+    if $results[0].key eq 'TOP' {
+      self.apply-tags-from-match('TOP', $results[0].value);
+    } else {
+      $failed = True;
+      my $max = 0;
+      for $results.list {
+        self.apply-tags-from-match(.key, .value);
+        $max = max($max, .value.to)
+      }
+      self.apply-tag-to-end('FAIL', $max);
+    }
   }
 
   method !buildUI ($window, $width, $height) {
