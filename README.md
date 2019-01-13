@@ -33,7 +33,7 @@ $ git clone https://github.com/Xliff/p6-GtkPlus.git
 $ git clone https://github.com/Xliff/p6-VisualGrammar.git
 ```
 
-- And I'm sorry for this next but, but you can now finally run the project. Be prepared to wait a LONG time the first time you do this.  (Be sure to adjust the -I directives for your environment.
+- Now finally run the project. Be prepared to wait a LONG time the first time you do this (Sorry!).  Be sure to adjust the -I directives for your environment.
 
 ```
 $ cd p6-VisualGrammar
