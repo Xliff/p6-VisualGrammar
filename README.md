@@ -2,7 +2,7 @@
 
 ![Screenshot](/grabs/VisualGrammar-interface.png?raw=true "VisualGrammar Interface")
 
-This is an extremely experimental project, and unfortunately, getting it to work requires checking out several git repositories.
+This is an extremely experimental project, and getting it to work requires checking out several git repositories.
 
 Here are the installation instructions for those of you wanting to experiment:
 
