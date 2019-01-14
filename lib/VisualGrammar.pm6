@@ -375,26 +375,34 @@ class VisualGrammar {
       if $!menu.items<autorefresh>.active {
         $!keytap.cancel with $!keytap;
         $!keytap = $*SCHEDULER.cue({
+          # If not done in a GThread, then program will crash.
           GTK::Compat::Threads.add_idle({
+            my $tedit = $!tview.editable;
             $!gedit.editable = $!tview.editable = False;
             self.refresh-grammar(True);
             $!keytap = Nil;
-            $!gedit.editable = $!tview.editable = True;
-
-            # Insure we return a native type.
-            my gint32 $r = G_SOURCE_REMOVE;
-            $r;
+            $!gedit.editable = True;
+            $!tview.editable = $tedit;
+            G_SOURCE_REMOVE;
           });
         }, in => %!config<auto-delay>);
       }
     }
-    .key-press-event.tap(-> *@a {
+    $!gedit.key-press-event.tap(-> *@a {
       do-auto-refresh();
       @a[* - 1].r = 0;
-    }) for $!gedit, $!tview;
-
-    # $!clip = GTK::Clipboard.new( GDK_SELECTION_CLIPBOARD );
-    # $!tview.paste-clipboard.tap({ self.paste });
+    });
+    $!tview.key-press-event.tap(-> *@a {
+      if $!tview.editable {
+        do-auto-refresh();
+        # If not done in a GThread, then program will crash.
+        GTK::Compat::Threads.add_idle({
+          $!tview.buffer.remove_all_tags;
+          G_SOURCE_REMOVE;
+        });
+      }
+      @a[* - 1].r = 0;
+    });
 
     $vbox.add($!menu.menu);
     $vbox.pack_start($!hpane, True, True);
