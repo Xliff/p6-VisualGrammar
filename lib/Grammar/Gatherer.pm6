@@ -24,6 +24,8 @@ The resulting capture can be retrieved by accessing the Grammars HOW:
 
   my @results = Some::Grammar.HOW.results
 
+Please note: Using this module is B<not> thread-safe.
+
 =head1 AUTHOR
 
 Clifton Wood. C<< clifton.wood@gmail.com >>

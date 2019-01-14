@@ -4,13 +4,14 @@ use GTK::Compat::Types;
 use GTK::Raw::Types;
 
 use Color;
+use DateTime::Format::RFC2822;
 use RandomColor;
 
 use Evals;
 
 use GTK::Application;
 use GTK::Box;
-use GTK::Clipboard;
+use GTK::Compat::Threads;
 use GTK::Dialog::FileChooser;
 use GTK::Menu;
 use GTK::MenuBar;
@@ -33,18 +34,17 @@ class VisualGrammar {
   has GTK::ScrolledWindow $!gscroll;
   has GTK::ScrolledWindow $!tscroll;
   has GTK::ScrolledWindow $!mscroll;
-  has GTK::Clipboard      $!clip;
   has GTK::TextBuffer     $!mbuffer;
   has GTK::TextBuffer     $!tbuffer;
 
   has @!rules;
 
   has %!colors;
-  has $!menu;
+  has %!config;
 
-  has $!dark-fg;
-  has $!light-fg;
+  has $!menu;
   has $!tags;
+  has $!keytap;
 
   # See https://github.com/jnthn/grammar-debugger/blob/master/lib/Grammar/Tracer.pm6
   # as to how this can be further improved, in terms of tracking matched AND failed matches!
@@ -56,6 +56,16 @@ class VisualGrammar {
   submethod BUILD (:$app, :$window, :$width, :$height) {
     $!app = $app;
     self!buildUI($window, $width, $height);
+
+    # These are defaults.
+    %!config = (
+      auto-delay     => 2,
+      TOP-color-bg   => GTK::Compat::RGBA.new-rgb(0, 0, 128),
+      FAIL-color-bg  => GTK::Compat::RGBA.new-rgb(255, 0, 0),
+      light-fg       => GTK::Compat::RGBA.new-rgb(230, 230, 230),
+      dark-fg        => GTK::Compat::RGBA.new-rgb(10, 10, 10),
+    );
+    %!config<TOP-color-fg FAIL-color-fg> = %!config<light-fg> xx 2;
   }
 
   method !get-new-color {
@@ -89,7 +99,7 @@ class VisualGrammar {
     without %!colors{$r} {
       my $color = self!get-new-color;
       %!colors{$r}<fg> = $color.rgb.list.any > 220 ??
-        $!dark-fg !! $!light-fg;
+        %!config<dark-fg> !! %!config<light-fg>;
       %!colors{$r}<bg> = GTK::Compat::RGBA.new-rgb(|$color.rgb);
     }
 
@@ -106,12 +116,12 @@ class VisualGrammar {
 
   method !update-colors {
     unless %!colors<TOP> {
-      %!colors<TOP><bg> = GTK::Compat::RGBA.new-rgb(0, 0, 128);
-      %!colors<TOP><fg> = $!light-fg;
+      %!colors<TOP><bg> = %!config<TOP-color-bg>;
+      %!colors<TOP><fg> = %!config<TOP-color-fg>;
     }
     unless %!colors<FAIL> {
-      %!colors<FAIL><bg> = GTK::Compat::RGBA.new-rgb(255, 0, 0);
-      %!colors<FAIL><fg> = $!light-fg;
+      %!colors<FAIL><bg> = %!config<FAIL-color-bg>;
+      %!colors<FAIL><fg> = %!config<FAIL-color-fg>;
     }
 
     my $count = 0;
@@ -144,24 +154,25 @@ class VisualGrammar {
 
   method !append-buffer ($b is rw, $v, $text) {
     $b //= $v.buffer;
-    $b.insert( $b.get_end_iter, "\n{ $text }" );
-    #$v.scroll_to_bottom;
+    $b.append($text);
   }
 
   method !append-m ($text) {
     self!append-buffer($!mbuffer, $!mview, $text);
   }
+  method !append-m-tagged ($text, $tag) {
+    $!mbuffer.append-with-tag($text, $tag)
+  }
 
   method !append-legend {
-    # Color legend replaces this list.
     self!append-m("Rules in grammar:\n");
-    # Why Slip when I omit the use of the intermediary $tags?
     my $row = 1;
     for @!rules {
       next if $_ eq 'TOP';
-      $!mbuffer.append("\t");
-      $!mbuffer.append_with_tag("\t{ $_ }", $!tags.lookup($_));
-      #$!mbuffer.append("\n") if $row++ % 5;
+      self!append-m("\t");
+      self!append-m-tagged("\t{ $_ }", $!tags.lookup($_));
+      self!append-m("\n") if !($row++ % 5);
+      LAST { self!append-m("\n") unless !(($row - 1) % 5) }
     }
   }
 
@@ -241,15 +252,15 @@ class VisualGrammar {
     }
   }
 
-  method refresh-grammar {
+  method refresh-grammar($timeout = False) {
     CATCH {
       default {
-        self!append-m( .message );
+        self!append-m("{ .message }\n");
         # Starting at index 3 seems to work the best.
         my $bt = Backtrace.new.list.grep({
           $_.is-setting.not && $_.is-hidden.not
         })[2..*].Str;
-        self!append-m( $bt );
+        self!append-m("{ $bt }\n") unless $timeout;
         say .message;
         say $bt;
       }
@@ -259,6 +270,11 @@ class VisualGrammar {
     #self!append-m( "Evaluating:\n{ self!format-code($code) }" );
 
     my @tmp-rules;
+    self!append-m(
+      "Auto-Refresh @ {
+        DateTime::Format::RFC2822.to-string( DateTime.now )
+      }:\n"
+    ) if $timeout;
     my $results = run-grammar($!tview.text, $!gedit.text, @tmp-rules);
     @tmp-rules.push: 'FAIL' unless $results[0].key eq 'TOP';
     @!rules = @tmp-rules;
@@ -275,6 +291,7 @@ class VisualGrammar {
     # Instead of waiting, could always prebuild for $/0 .. $/9
     # self.update-positional-colors($results{$_}) with $results;
 
+    $!tview.buffer.remove_all_tags;
     my $failed = False;
     if $results[0].key eq 'TOP' {
       self.apply-tags-from-match('TOP', $results[0].value);
@@ -322,7 +339,7 @@ class VisualGrammar {
       Grammar => [
         Refresh          => { 'do' => -> { self.refresh-grammar    } },
         '-'              => False,
-        'Auto Refresh'   => { :check },
+        'Auto Refresh'   => { :check, id => 'autorefresh' },
         'Text Editable'  => $editable-item
       ]
     ]);
@@ -330,10 +347,6 @@ class VisualGrammar {
     my $vbox = GTK::Box.new-vbox;
     ($!hpane, $!vpane) = (GTK::Pane.new-hpane, GTK::Pane.new-vpane);
     $!gedit = GTK::TextView.new;
-
-    # Should be constants, but currently not possible with Rakudo
-    $!dark-fg  = GTK::Compat::RGBA.new-rgb(10, 10, 10);
-    $!light-fg = GTK::Compat::RGBA.new-rgb(230, 230, 230);
 
     # Create with shared Tag Table
     $!tags     = GTK::TextTagTable.new;
@@ -357,6 +370,28 @@ class VisualGrammar {
     $!hpane.add1($!vpane);
     $!hpane.add2($!tscroll);
     $!mview.autoscroll = True;
+
+    sub do-auto-refresh {
+      if $!menu.items<autorefresh>.active {
+        $!keytap.cancel with $!keytap;
+        $!keytap = $*SCHEDULER.cue({
+          GTK::Compat::Threads.add_idle({
+            $!gedit.editable = $!tview.editable = False;
+            self.refresh-grammar(True);
+            $!keytap = Nil;
+            $!gedit.editable = $!tview.editable = True;
+
+            # Insure we return a native type.
+            my gint32 $r = G_SOURCE_REMOVE;
+            $r;
+          });
+        }, in => %!config<auto-delay>);
+      }
+    }
+    .key-press-event.tap(-> *@a {
+      do-auto-refresh();
+      @a[* - 1].r = 0;
+    }) for $!gedit, $!tview;
 
     # $!clip = GTK::Clipboard.new( GDK_SELECTION_CLIPBOARD );
     # $!tview.paste-clipboard.tap({ self.paste });
