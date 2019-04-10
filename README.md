@@ -16,8 +16,7 @@ $ git clone https://github.com/Xliff/p6-Pango.git
 
 ```
 $ git clone https://github.com/Xliff/p6-GtkPlus.git
-$ cd p6-GtkPlus
-$ zef install --deps-only .
+$ (cd p6-GtkPlus; zef install --deps-only .)
 ```
 
 - And finally, checkout Visual Grammar
