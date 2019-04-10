@@ -150,8 +150,6 @@ class VisualGrammar {
   method save-text-file    { self.spurt-file($!tview) }
   method clear-msgs        { $!mview.text = '';       }
 
-  #method paste             { $!tview.text = $!clip.wait_for_text; }
-
   method !append-buffer ($b is rw, $v, $text) {
     $b //= $v.buffer;
     $b.append($text);
@@ -276,7 +274,7 @@ class VisualGrammar {
       }:\n"
     ) if $timeout;
     my $results = run-grammar($!tview.text, $!gedit.text, @tmp-rules);
-    @tmp-rules.push: 'FAIL' unless $results[0].key eq 'TOP';
+    @tmp-rules.unshift: 'FAIL' unless $results[0].key eq 'TOP';
     @!rules = @tmp-rules;
 
     self!update-colors;
