@@ -17,16 +17,31 @@ sub format-code ($code) {
   @c.join("\n");
 }
 
-sub run-grammar($text, $gtext, @rules) is export {
+sub run-grammar($text, $gtext is copy, @rules) is export {
 
   # -YYY- TODO: Extract grammar statement from $gtext to limit code injection
   # possibilities.
 
-  my $name = ($gtext ~~ /^^ \s* 'grammar' \s+ (\w+)/ // [])[0].Str;
+  my token unit { 'unit' }
+  my $nr = $gtext ~~ /^^ \s* [ <unit> \s+ ]? 'grammar' \s+ (\w+)/;
+  my $name = $nr.defined ?? $nr[0] !! Nil;
   die "Cannot find grammar name!\n" without $name;
+  if $nr<unit>.defined {
+    $gtext ~~ /^^ <unit> \s 'grammar' \s+ \w+ ';' (.+) $$/;
+    $gtext = qq:to/G/.chomp
+my grammar { $name } \{
+\t{ $/[0].split(/\n/).join("\t\n") }
+\}
+G
+
+  } else {
+    $gtext ~~ s/^^ (.+?) 'grammar'//;
+    $gtext = "my { $gtext }";
+  }
+  
   my $code = qq:to/CODE/.chomp;
 use Grammar::Gatherer;
-my { $gtext }
+{ $gtext }
 \@rules = { $name }.^methods(:local).map( *.name ).sort;
 { $name }.parse(\$text);
 { $name }.HOW.results;
