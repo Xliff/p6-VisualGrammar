@@ -11,9 +11,9 @@ $a.activate.tap({
   );
 
   # Remove after testing.
-  $v.open-grammar-file('tg.g');
-  $v.open-text-file('aaaa.txt');
-  $v.refresh-grammar;
+  # $v.open-grammar-file('tg.g');
+  # $v.open-text-file('aaaa.txt');
+  # $v.refresh-grammar;
 
   $a.window.show_all;
 });
