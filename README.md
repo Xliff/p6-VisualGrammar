@@ -6,16 +6,7 @@ This is an extremely experimental project, and getting it to work requires check
 
 Here are the installation instructions for those of you wanting to experiment:
 
-- First, create a working directory for all of the repositories
-- Next, check out my working branch of timotimo's Cairo for Perl6 (PRs forthcoming):
-
-```
-$ git clone https://github.com/Xliff/cairo-p6.git
-$ cd cairo-p6
-$ git checkout cairo_path_t
-```
-
-- Next, check out my forthcoming Pango module:
+- First, check out my forthcoming Pango module:
 
 ```
 $ git clone https://github.com/Xliff/p6-Pango.git
@@ -25,6 +16,7 @@ $ git clone https://github.com/Xliff/p6-Pango.git
 
 ```
 $ git clone https://github.com/Xliff/p6-GtkPlus.git
+$ (cd p6-GtkPlus; zef install --deps-only .)
 ```
 
 - And finally, checkout Visual Grammar
@@ -37,7 +29,7 @@ $ git clone https://github.com/Xliff/p6-VisualGrammar.git
 
 ```
 $ cd p6-VisualGrammar
-$ perl6 --stagestats -I../cairo-p6/lib -I../p6-Pango/lib -I../p6-GtkPlus/lib -Ilib visual-grammar.pl6
+$ perl6 --stagestats -I../p6-Pango/lib -I../p6-GtkPlus/lib -Ilib visual-grammar.pl6
 ```
 
 Please share compile times and your environment from the last command, [here](/../../issues/1).
