@@ -82,7 +82,7 @@ my class GathererGrammarHOW is Metamodel::GrammarHOW does Grammar::Gatherer::Wra
         $last = $_;
       }
       @returnable.unshift: @returnable.pop
-        if @returnable[*-1].key eq 'TOP';
+        if @returnable && @returnable[*-1].key eq 'TOP';
       @returnable;
     }
 

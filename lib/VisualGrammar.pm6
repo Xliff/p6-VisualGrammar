@@ -11,7 +11,7 @@ use Evals;
 
 use GTK::Application;
 use GTK::Box;
-use GTK::Compat::Threads;
+use GDK::Threads;
 use GTK::Dialog::FileChooser;
 use GTK::Menu;
 use GTK::MenuBar;
@@ -23,6 +23,8 @@ use GTK::TextView;
 use GTK::Utils::MenuBuilder;
 
 constant SEED = 31459265;
+
+my @method-blacklist = <TOP BUILDALL>;
 
 class VisualGrammar {
   has GTK::Application    $!app;
@@ -126,7 +128,7 @@ class VisualGrammar {
 
     my $count = 0;
     for @!rules.sort -> $r {
-      next if $r eq 'TOP';
+      next if $r eq @method-blacklist.any;
       self!add-rule-color($r);
     }
   }
@@ -166,7 +168,7 @@ class VisualGrammar {
     self!append-m("Rules in grammar:\n");
     my $row = 1;
     for @!rules {
-      next if $_ eq 'TOP';
+      next if $_ eq @method-blacklist.any;
       self!append-m("\t");
       self!append-m-tagged("\t{ $_ }", $!tags.lookup($_));
       self!append-m("\n") if !($row++ % 5);
@@ -274,7 +276,7 @@ class VisualGrammar {
       }:\n"
     ) if $timeout;
     my $results = run-grammar($!tview.text, $!gedit.text, @tmp-rules);
-    @tmp-rules.unshift: 'FAIL' unless $results[0].key eq 'TOP';
+    @tmp-rules.unshift: 'FAIL' unless $results.not || $results[0].key eq 'TOP';
     @!rules = @tmp-rules;
 
     self!update-colors;
@@ -291,7 +293,7 @@ class VisualGrammar {
 
     $!tview.buffer.remove_all_tags;
     my $failed = False;
-    if $results[0].key eq 'TOP' {
+    if $results && $results[0].key eq 'TOP' {
       self.apply-tags-from-match('TOP', $results[0].value);
     } else {
       $failed = True;
@@ -374,7 +376,7 @@ class VisualGrammar {
         $!keytap.cancel with $!keytap;
         $!keytap = $*SCHEDULER.cue({
           # If not done in a GThread, then program will crash.
-          GTK::Compat::Threads.add_idle({
+          GDK::Threads.add_idle({
             my $tedit = $!tview.editable;
             $!gedit.editable = $!tview.editable = False;
             self.refresh-grammar(True);
@@ -394,7 +396,7 @@ class VisualGrammar {
       if $!tview.editable {
         do-auto-refresh();
         # If not done in a GThread, then program will crash.
-        GTK::Compat::Threads.add_idle({
+        GDK::Threads.add_idle({
           $!tview.buffer.remove_all_tags;
           G_SOURCE_REMOVE;
         });
