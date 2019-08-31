@@ -1,2 +1,2 @@
 - Better grammar tracking, so that users can see where a grammar failed. See how Grammar::Tracer does its work and see if it can be adapted for this purpose.
-- Add ability to reload last save grammar and text file.
+√ Add ability to reload last save grammar and text file.

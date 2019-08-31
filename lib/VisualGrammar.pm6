@@ -10,10 +10,13 @@ use JSON::Fast;
 
 use Evals;
 
+use GTK::Compat::Signal;
+
 use GTK::Application;
 use GTK::Box;
 use GDK::Threads;
 use GTK::Dialog::FileChooser;
+use GTK::Dialog::FontChooser;
 use GTK::Menu;
 use GTK::MenuBar;
 use GTK::Pane;
@@ -40,6 +43,7 @@ class VisualGrammar {
   has GTK::ScrolledWindow $!mscroll;
   has GTK::TextBuffer     $!mbuffer;
   has GTK::TextBuffer     $!tbuffer;
+  has GTK::Window         $!window;
 
   has @!rules;
 
@@ -141,10 +145,29 @@ class VisualGrammar {
     if settingsFile.IO.e {
       my $settings = settingsFile.IO.slurp;
       %!settings = from-json($settings);
+
       self.open-grammar-file(%!settings<last-grammar>)
         if %!settings<last-grammar>;
+
       self.open-text-file(%!settings<last-text>)
         if %!settings<last-text>;
+
+      $!gedit.override_font(
+        Pango::FontDescription.new-from-string( %!settings<font-grammar-edit> )
+      ) if %!settings<font-grammar-edit>;
+
+      $!tview.override_font(
+        Pango::FontDescription.new-from-string( %!settings<font-text-view> )
+      ) if %!settings<font-text-view>;
+
+      # $!window.resize( |%!settings<win-width win-height> )
+      #   if %!settings<win-width win-height>.all ~~ Int;
+      #
+      # $!hpane.position = %!settings<hpane-position>
+      #   if %!settings<hpane-position>;
+      #
+      # $!vpane.position = %!settings<vpane-position>
+      #   if %!settings<vpane-position>;
     }
   }
 
@@ -216,6 +239,20 @@ class VisualGrammar {
     $fc.run;
   }
 
+  method !font-sel($v) {
+    my $fd = GTK::Dialog::FontChooser.new(
+      "Select a font for {$v.name}",
+      $!window
+    );
+    if $fd.run == GTK_RESPONSE_OK {
+      my $font-desc = $fd.font-desc;
+      %!settings{ "font-{$v.name}" } =
+        ($font-desc.family, $font-desc.style, $font-desc.size).join(' ');
+      $v.override_font($font-desc);
+    }
+    $fd.hide;
+  }
+
   method apply-tag-to-end($rule, Int $offset) {
     my $tag;
     return False unless $tag = $!tags.lookup($rule);
@@ -243,16 +280,18 @@ class VisualGrammar {
     }
 
     #my $tags = $!tview.buffer.tag-table;
-    my $tag = $!tags.lookup($rule);
+    my $tag = $!tags.lookup($rule, :raw);
     unless $rule eq 'TOP' {
       my $r = get_range($match);
       next unless $r.grep( *.defined );
       # In the case of $<name>=... inside regex.
       self!add-rule-color($rule) unless %!colors{$rule};
 
-      # Error here... why?
-      $r.gist.say;
-      $!tbuffer.apply_tag( $tag, |$r ) if $r;
+      if [&&]($tag, |$r) {
+        $!tbuffer.apply_tag($tag, |$r)
+      } else {
+        say "Unknown tag data detected for rule '$rule'. Skipping...";
+      }
     }
 
 
@@ -332,6 +371,8 @@ class VisualGrammar {
   }
 
   method !buildUI ($window, $width, $height) {
+    $!window = $window;
+
     my $editable-item = {
       :check,
       id      => 'editable-text',
@@ -359,9 +400,9 @@ class VisualGrammar {
         Paste            => { 'do' => -> { self.paste              } },
       ],
       View => [
-        'Clear Messages'   => { 'do' => -> { self.clear-msgs       } },
-        'Set Grammar Font' => { 'do' => -> { 1 } },
-        'Set Text Font'    => { 'do' => -> { 1 } },
+        'Clear Messages'   => { 'do' => -> { self.clear-msgs        } },
+        'Set Grammar Font' => { 'do' => -> { self!font-sel($!gedit) } },
+        'Set Text Font'    => { 'do' => -> { self!font-sel($!tview) } },
       ],
       Grammar => [
         Refresh          => { 'do' => -> { self.refresh-grammar    } },
@@ -379,6 +420,7 @@ class VisualGrammar {
     $!tags     = GTK::TextTagTable.new;
     ($!tview, $!mview) = (GTK::TextView.new( GTK::TextBuffer.new($!tags) ) xx 2);
     ($!gedit.editable, $!tview.editable, $!mview.editable) = (True, True, False);
+    ($!gedit.name, $!tview.name) = <grammar-edit text-view>;
     $!menu.items<editable-text>.active = True;
     ($!hpane.wide-handle, $!vpane.wide-handle) = (True, True);
     ($!gscroll, $!tscroll, $!mscroll) = (GTK::ScrolledWindow.new xx 3);
@@ -430,6 +472,19 @@ class VisualGrammar {
       }
       @a[* - 1].r = 0;
     });
+
+    # $!window.configure-event.tap(-> *@a {
+    #   my $e = cast(GdkEventConfigure, @a[1]);
+    #
+    #   %!settings<win-width win-height x y> = ($e.width, $e.height, $e.x, $e.y);
+    # });
+    #
+    # GTK::Compat::Signal.connect-data($!hpane, 'notify::position', -> *@a {
+    #   %!settings<hpane-position> = $!hpane.position
+    # });
+    # GTK::Compat::Signal.connect-data($!vpane, 'notify::position', -> *@a {
+    #   %!settings<vpane-position> = $!vpane.position
+    # });
 
     self!loadSettings;
 
