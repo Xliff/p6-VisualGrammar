@@ -6,6 +6,7 @@ use GTK::Raw::Types;
 use Color;
 use DateTime::Format::RFC2822;
 use RandomColor;
+use JSON::Fast;
 
 use Evals;
 
@@ -23,6 +24,7 @@ use GTK::TextView;
 use GTK::Utils::MenuBuilder;
 
 constant SEED = 31459265;
+constant settingsFile = "$*HOME/.visual-grammar";
 
 my @method-blacklist = <TOP BUILDALL>;
 
@@ -47,6 +49,8 @@ class VisualGrammar {
   has $!menu;
   has $!tags;
   has $!keytap;
+
+  has %!settings;
 
   # See https://github.com/jnthn/grammar-debugger/blob/master/lib/Grammar/Tracer.pm6
   # as to how this can be further improved, in terms of tracking matched AND failed matches!
@@ -133,24 +137,39 @@ class VisualGrammar {
     }
   }
 
-  multi method open-grammar-file($filename) {
+  method !loadSettings {
+    if settingsFile.IO.e {
+      my $settings = settingsFile.IO.slurp;
+      %!settings = from-json($settings);
+      self.open-grammar-file(%!settings<last-grammar>)
+        if %!settings<last-grammar>;
+      self.open-text-file(%!settings<last-text>)
+        if %!settings<last-text>;
+    }
+  }
+
+  multi method open-grammar-file(Str() $filename) {
     say "Cannot open '$filename'" unless $filename.IO.e;
     $!gedit.text = $filename.IO.slurp;
   }
 
-  multi method open-text-file($filename) {
+  multi method open-text-file(Str() $filename) {
     say "Cannot open '$filename'" unless $filename.IO.e;
     $!tview.text = $filename.IO.slurp;
   }
 
-  multi method open-grammar-file { self.slurp-file($!gedit) }
-  multi method open-text-file    { self.slurp-file($!tview) }
+  multi method open-grammar-file { self.slurp-file($!gedit, 'Grammar') }
+  multi method open-text-file    { self.slurp-file($!tview, 'Text') }
 
-  method quit              { $!app.exit               }
   method close-file        { $!gedit.text = ''        }
   method save-grammar-file { self.spurt-file($!gedit) }
   method save-text-file    { self.spurt-file($!tview) }
   method clear-msgs        { $!mview.text = '';       }
+
+  method quit {
+    settingsFile.IO.spurt: to-json(%!settings);
+    $!app.exit;
+  }
 
   method !append-buffer ($b is rw, $v, $text) {
     $b //= $v.buffer;
@@ -176,12 +195,15 @@ class VisualGrammar {
     }
   }
 
-  method slurp-file($tv) {
+  method slurp-file($tv, $name) {
     my $fc = GTK::Dialog::FileChooser.new(
-      'Select Grammar file', $!app.window, GTK_FILE_CHOOSER_ACTION_OPEN
+      "Select $name file", $!app.window, GTK_FILE_CHOOSER_ACTION_OPEN
     );
-    $fc.response.tap:          { $tv.text = $fc.filename.IO.slurp;
-                                 $fc.hide };
+    $fc.response.tap({
+      $tv.text = $fc.filename.IO.slurp;
+      $fc.hide;
+      %!settings{'last-' ~ $name.lc} = $fc.filename.IO.absolute;
+    });
     $fc.run;
   }
 
@@ -223,11 +245,14 @@ class VisualGrammar {
     #my $tags = $!tview.buffer.tag-table;
     my $tag = $!tags.lookup($rule);
     unless $rule eq 'TOP' {
-      my $r = |get_range($match);
+      my $r = get_range($match);
       next unless $r.grep( *.defined );
       # In the case of $<name>=... inside regex.
       self!add-rule-color($rule) unless %!colors{$rule};
-      $!tbuffer.apply_tag( $tag, |$r );
+
+      # Error here... why?
+      $r.gist.say;
+      $!tbuffer.apply_tag( $tag, |$r ) if $r;
     }
 
 
@@ -334,7 +359,9 @@ class VisualGrammar {
         Paste            => { 'do' => -> { self.paste              } },
       ],
       View => [
-        'Clear Messages' => { 'do' => -> { self.clear-msgs         } },
+        'Clear Messages'   => { 'do' => -> { self.clear-msgs       } },
+        'Set Grammar Font' => { 'do' => -> { 1 } },
+        'Set Text Font'    => { 'do' => -> { 1 } },
       ],
       Grammar => [
         Refresh          => { 'do' => -> { self.refresh-grammar    } },
@@ -404,8 +431,11 @@ class VisualGrammar {
       @a[* - 1].r = 0;
     });
 
+    self!loadSettings;
+
     $vbox.add($!menu.menu);
     $vbox.pack_start($!hpane, True, True);
+    $window.destroy-signal.tap({ self.quit });
     $window.add($vbox);
   }
 }
