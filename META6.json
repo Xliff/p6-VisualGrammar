@@ -1,0 +1,20 @@
+{
+    "depends": [
+        "p6-GtkPlus",
+        "Color::Names",
+        "RandomColor",
+    ],
+    "description": "A GtkPlus-based application for debugging grammars.",
+    "version": "r0.3",
+    "meta-version": "0",
+    "license": "GPL-3.0",
+    "source-url": "https://github.com/Xliff/p6-VisualGrammar.git",
+    "provides": {
+    },
+    "name": "VisualGrammar",
+    "perl": "6.c",
+    "test-depends": ["Test::META"],
+    "build-depends": [ ],
+    "support": {"source": null},
+    "authors": ["clifton.wood@gmail.com"]
+}
