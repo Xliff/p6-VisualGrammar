@@ -1,2 +1,8 @@
 lib/.precomp
 scripts/
+*.ipynb
+LastBuildResults
+LastBuildResults.*
+*.log
+*.g
+*.txt
