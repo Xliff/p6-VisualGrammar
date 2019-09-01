@@ -10,11 +10,16 @@ use JSON::Fast;
 
 use Evals;
 
+use Pango::FontDescription;
+
+use GDK::Threads;
+
 use GTK::Compat::Signal;
 
 use GTK::Application;
 use GTK::Box;
-use GDK::Threads;
+use GTK::CSSProvider;
+use GTK::Dialog::ColorChooser;
 use GTK::Dialog::FileChooser;
 use GTK::Dialog::FontChooser;
 use GTK::Menu;
@@ -26,7 +31,7 @@ use GTK::TextView;
 
 use GTK::Utils::MenuBuilder;
 
-constant SEED = 31459265;
+constant SEED = 314159265358979;
 constant settingsFile = "$*HOME/.visual-grammar";
 
 my @method-blacklist = <TOP BUILDALL>;
@@ -45,16 +50,17 @@ class VisualGrammar {
   has GTK::TextBuffer     $!tbuffer;
   has GTK::Window         $!window;
 
+  has GTK::CSSProvider    $!css = GTK::CSSProvider.new;
+
   has @!rules;
 
   has %!colors;
   has %!config;
+  has %!settings;
 
   has $!menu;
   has $!tags;
   has $!keytap;
-
-  has %!settings;
 
   # See https://github.com/jnthn/grammar-debugger/blob/master/lib/Grammar/Tracer.pm6
   # as to how this can be further improved, in terms of tracking matched AND failed matches!
@@ -76,6 +82,8 @@ class VisualGrammar {
       dark-fg        => GTK::Compat::RGBA.new-rgb(10, 10, 10),
     );
     %!config<TOP-color-fg FAIL-color-fg> = %!config<light-fg> xx 2;
+    %!settings<grammar-edit-fg text-view-fg> = 'black' xx 2;
+    %!settings<grammar-edit-bg text-view-bg> = 'white' xx 2;
   }
 
   method !get-new-color {
@@ -108,9 +116,11 @@ class VisualGrammar {
   method !add-rule-color($r) {
     without %!colors{$r} {
       my $color = self!get-new-color;
-      %!colors{$r}<fg> = $color.rgb.list.any > 220 ??
+      %!colors{$r}<fg> = $color.rgb.list.grep( * > 160 ) >= 2 ??
         %!config<dark-fg> !! %!config<light-fg>;
-      %!colors{$r}<bg> = GTK::Compat::RGBA.new-rgb(|$color.rgb);
+      %!colors{$r}<fg> = $color.rgb.list.any >= 200 ??
+        %!config<dark-fg> !! %!config<light-fg>;
+      %!colors{$r}<bg> = GTK::Compat::RGBA.new-rgb( |$color.rgb );
     }
 
     without $!tags.lookup($r) {
@@ -141,33 +151,65 @@ class VisualGrammar {
     }
   }
 
+  method !setColors {
+    my $styles = q:to/CSS/;
+      #grammar-edit {
+      }
+      #grammar-edit text {
+        background-color: %s;
+        color: %s;
+      }
+      #text-view {
+      }
+      #text-view text {
+        background-color: %s;
+        color: %s;
+      }
+      CSS
+
+    # YYY - Detect if fg and bg colors are the same and if so, set an inverted
+    #       color on the associated OPPOSITE color.
+    my $updated-styles = $styles.&sprintf(
+      |%!settings<
+        grammar-edit-bg
+        grammar-edit-fg
+        text-view-bg
+        text-view-fg
+      >
+    );
+
+    $!css.load-from-data($updated-styles);
+  }
+
   method !loadSettings {
     if settingsFile.IO.e {
       my $settings = settingsFile.IO.slurp;
-      %!settings = from-json($settings);
+      %!settings = do gather for from-json($settings).pairs {
+        take .key => .value.defined ?? .value !! %!settings{.key};
+      }
 
-      self.open-grammar-file(%!settings<last-grammar>)
+      self.open-grammar-file( %!settings<last-grammar> )
         if %!settings<last-grammar>;
 
-      self.open-text-file(%!settings<last-text>)
+      self.open-text-file( %!settings<last-text> )
         if %!settings<last-text>;
 
       $!gedit.override_font(
-        Pango::FontDescription.new-from-string( %!settings<font-grammar-edit> )
-      ) if %!settings<font-grammar-edit>;
+        Pango::FontDescription.new-from-string( %!settings<grammar-edit-font> )
+      ) if %!settings<grammar-edit-font>;
 
       $!tview.override_font(
-        Pango::FontDescription.new-from-string( %!settings<font-text-view> )
-      ) if %!settings<font-text-view>;
+        Pango::FontDescription.new-from-string( %!settings<text-view-font> )
+      ) if %!settings<text-view-font>;
 
-      # $!window.resize( |%!settings<win-width win-height> )
-      #   if %!settings<win-width win-height>.all ~~ Int;
-      #
-      # $!hpane.position = %!settings<hpane-position>
-      #   if %!settings<hpane-position>;
-      #
-      # $!vpane.position = %!settings<vpane-position>
-      #   if %!settings<vpane-position>;
+      $!window.resize( |%!settings<win-width win-height> )
+        if %!settings<win-width win-height>.all ~~ Int;
+
+      $!hpane.position = %!settings<hpane-position>
+        if %!settings<hpane-position>;
+
+      $!vpane.position = %!settings<vpane-position>
+        if %!settings<vpane-position>;
     }
   }
 
@@ -246,11 +288,24 @@ class VisualGrammar {
     );
     if $fd.run == GTK_RESPONSE_OK {
       my $font-desc = $fd.font-desc;
-      %!settings{ "font-{$v.name}" } =
-        ($font-desc.family, $font-desc.style, $font-desc.size).join(' ');
+      %!settings{ "{$v.name}-font" } = ~$font-desc;
       $v.override_font($font-desc);
     }
     $fd.hide;
+  }
+
+  method !color-sel($v, :$bg = False) {
+    my $t = $bg.not ?? 'foreground' !! 'background';
+    my $ccd = GTK::Dialog::ColorChooser.new(
+      "Select { $v.name } { $t } color",
+      $!window
+    );
+
+    if $ccd.run == GTK_RESPONSE_OK {
+      my $tt = $bg.not ?? 'fg' !! 'bg';
+      %!settings{"{$v.name}-{$tt}"} = $ccd.rgba.to_string;
+      self!setColors;
+    }
   }
 
   method apply-tag-to-end($rule, Int $offset) {
@@ -399,11 +454,30 @@ class VisualGrammar {
         Copy             => { 'do' => -> { self.copy-selected      } },
         Paste            => { 'do' => -> { self.paste              } },
       ],
-      View => [
-        'Clear Messages'   => { 'do' => -> { self.clear-msgs        } },
-        'Set Grammar Font' => { 'do' => -> { self!font-sel($!gedit) } },
-        'Set Text Font'    => { 'do' => -> { self!font-sel($!tview) } },
-      ],
+      View => do {
+        my %l = (
+          g-ft => 'Set Grammar Font',
+          t-ft => 'Set Text Font',
+          g-bk => 'Set Grammar Background',
+          t-bk => 'Set Text Background',
+          g-fg => 'Set Grammar Text Color',
+          t-fg => 'Set Text Color',
+          clr  => 'Clear Messages'
+        );
+
+        [
+          %l<clr>        => { 'do' => -> { self.clear-msgs              } },
+          '-'            => False,
+          %l<g-ft>       => { 'do' => -> { self!font-sel($!gedit)       } },
+          %l<t-ft>       => { 'do' => -> { self!font-sel($!tview)       } },
+          '-'            => False,
+          %l<g-bk>       => { 'do' => -> { self!color-sel($!gedit, :bg) } },
+          %l<t-bk>       => { 'do' => -> { self!color-sel($!tview, :bg) } },
+          '-'            => False,
+          %l<g-fg>       => { 'do' => -> { self!color-sel($!gedit)      } },
+          %l<t-fg>       => { 'do' => -> { self!color-sel($!tview)      } },
+        ]
+      },
       Grammar => [
         Refresh          => { 'do' => -> { self.refresh-grammar    } },
         '-'              => False,
@@ -473,18 +547,21 @@ class VisualGrammar {
       @a[* - 1].r = 0;
     });
 
-    # $!window.configure-event.tap(-> *@a {
-    #   my $e = cast(GdkEventConfigure, @a[1]);
-    #
-    #   %!settings<win-width win-height x y> = ($e.width, $e.height, $e.x, $e.y);
-    # });
-    #
-    # GTK::Compat::Signal.connect-data($!hpane, 'notify::position', -> *@a {
-    #   %!settings<hpane-position> = $!hpane.position
-    # });
-    # GTK::Compat::Signal.connect-data($!vpane, 'notify::position', -> *@a {
-    #   %!settings<vpane-position> = $!vpane.position
-    # });
+    $!window.configure-event.tap(-> *@a {
+      CATCH { default { .message.say } }
+      my $e = cast(GdkEventConfigure, @a[1]);
+
+      %!settings<win-width win-height win-x win-y> =
+        ($e.width, $e.height, $e.x, $e.y);
+      @a[* - 1].r = 0;
+    });
+
+    GTK::Compat::Signal.connect-data($!hpane, 'notify::position', -> *@a {
+      %!settings<hpane-position> = $!hpane.position
+    });
+    GTK::Compat::Signal.connect-data($!vpane, 'notify::position', -> *@a {
+      %!settings<vpane-position> = $!vpane.position
+    });
 
     self!loadSettings;
 
