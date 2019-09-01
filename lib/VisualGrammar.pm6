@@ -4,6 +4,7 @@ use GTK::Compat::Types;
 use GTK::Raw::Types;
 
 use Color;
+use Color::Data::CSS3 :colors;
 use DateTime::Format::RFC2822;
 use RandomColor;
 use JSON::Fast;
@@ -50,7 +51,7 @@ class VisualGrammar {
   has GTK::TextBuffer     $!tbuffer;
   has GTK::Window         $!window;
 
-  has GTK::CSSProvider    $!css = GTK::CSSProvider.new;
+  has GTK::CSSProvider    $!css;
 
   has @!rules;
 
@@ -185,8 +186,29 @@ class VisualGrammar {
     if settingsFile.IO.e {
       my $settings = settingsFile.IO.slurp;
       %!settings = do gather for from-json($settings).pairs {
-        take .key => .value.defined ?? .value !! %!settings{.key};
+        my $p = $_;
+
+        # Handle colors.
+        if .value.ends-with(<bg fg>.any) {
+          my $m = $p ~~ / 'rgb(' (\d+)+ % ',' ')' /;
+          if $m {
+            $m = $m.Array.map( *.Int );
+          } else {
+            $m = $p ~~ / (\w+) /;
+            if ($cn = $m ?? $m[0] !! Nil) {
+              $m = COLORS($cn).rgb;
+            } else {
+              say "Unknown color name encountered for '{.key}': '{$cn}'";
+            }
+          }
+          $p.value = GTK::Compat::RGBA( |$m ) if $m;
+        }
+
+        # Attach to %!settings
+        take .key => $p.value.defined ?? $p.value !! %!settings{ .key };
       }
+
+      self!setColors;
 
       self.open-grammar-file( %!settings<last-grammar> )
         if %!settings<last-grammar>;
@@ -251,12 +273,42 @@ class VisualGrammar {
   method !append-legend {
     self!append-m("Rules in grammar:\n");
     my $row = 1;
-    for @!rules {
-      next if $_ eq @method-blacklist.any;
+
+    my @r = @rules.grep(* ne @method-blacklist.any);
+    my $max = @r.map( *.chars ).max;
+
+    my $pos = $!hpane.position - 10;
+    my $col = 1;
+
+    # Could be put into GTK::StyleContext as get-font-desc!
+    # This is only useful if the text description of the
+    # font is not available. We currently do not set a font
+    # on the Message view. That may change.
+    my $sc = $mview.style-context;
+    $sc.save;
+    $sc.state = 0;
+    my $fd = Pango::FontDescription.new(
+      cast(
+        PangoFontDescription,
+        $sc.get-property(GTK_STATE_FLAG_NORMAL, 'font')
+      )
+    );
+    $sc.restore;
+    my $pl = Pango::Layout.new;
+    $pl.font-desc = $fd;
+
+    my $t;
+    do {
+        $pl.text = $t ~= "\t" ~ 'W' x $max;
+        $cnt++;
+    } while $pl.pixel-size[0] < $pos && $cnt++ < 9;
+    $cnt-- unless $cnt == 1;
+
+    for @r {
       self!append-m("\t");
-      self!append-m-tagged("\t{ $_ }", $!tags.lookup($_));
-      self!append-m("\n") if !($row++ % 5);
-      LAST { self!append-m("\n") unless !(($row - 1) % 5) }
+      self!append-m-tagged("\t{ .fmt("%-{$cnt}") }", $!tags.lookup($_));
+      self!append-m("\n") if !($row++ % $cnt);
+      LAST { self!append-m("\n") unless !(($row - 1) % $cnt) }
     }
   }
 
@@ -295,6 +347,10 @@ class VisualGrammar {
   }
 
   method !color-sel($v, :$bg = False) {
+    constant high-val     = 255
+    constant perfect-gray = (high-val / 2).Int;
+    constant tolerance    = 20;
+
     my $t = $bg.not ?? 'foreground' !! 'background';
     my $ccd = GTK::Dialog::ColorChooser.new(
       "Select { $v.name } { $t } color",
@@ -303,7 +359,24 @@ class VisualGrammar {
 
     if $ccd.run == GTK_RESPONSE_OK {
       my $tt = $bg.not ?? 'fg' !! 'bg';
-      %!settings{"{$v.name}-{$tt}"} = $ccd.rgba.to_string;
+      my $tto = $bg    ?? 'fg' !! 'bg';
+
+      %!settings{"{$v.name}-{$tt}"} = $ccd.rgba;
+      if %!settings{"{$v.name}-{$tto}"} eqv $ccd.rgba {
+        my $rgba = GTK::Compat::RGBA.new(
+          |(high-val «-« $ccd.rgba.rgb)
+        );
+        my $a = $rgba.rgb.sum / $rgb.elems;
+        if [&&](
+          # Average Within tolerance of perfect gray
+          $a ~~ perfect-gray - tolerance .. perfect-gray + tolerance,
+          # 2 colors within tolerance of average.
+          $rgba.rgb.grep(* ~~ $a - tolerance .. $a + tolerance) >= 2
+        ) {
+          # Switch to black for contrast.
+          $rgba = GTK::Compat::RGBA.new(0, 0, 0);
+        }
+      }
       self!setColors;
     }
   }
@@ -427,6 +500,7 @@ class VisualGrammar {
 
   method !buildUI ($window, $width, $height) {
     $!window = $window;
+    $!css    = GTK::CSSProvider.new;
 
     my $editable-item = {
       :check,
