@@ -54,7 +54,7 @@ my class GathererGrammarHOW is Metamodel::GrammarHOW does Grammar::Gatherer::Wra
             self!cache-wrapped: $name, $meth, -> $c, |args {
                 my $result;
                 try {
-                    say $name;
+                    #say $name;
                     $result := $meth($c, |args);
                     CATCH { }
                 }

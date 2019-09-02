@@ -3,3 +3,9 @@
 - Fix legend to be a properly spaced grid (hint: check for largest rule name size!)
 - Check on algorithm for generating pleasing contrasting colors.
 - Check on algorithm for generating different "adjacent" colors.
+- Save dialog should default to the last file loaded for that pane.
+- Save dialog should offer an overwrite confirmation dialog in the situation
+  when saving to a filename that already exists.
+- Color tags are getting overwritten due to priority. Determine an algorithm
+  that minimizes this possibility. Applying a length-based priority system may
+  be a good direction to start with.
