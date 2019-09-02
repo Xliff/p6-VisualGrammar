@@ -1,17 +1,20 @@
 use v6.c;
 
+use Pango::Raw::Types;
 use GTK::Compat::Types;
 use GTK::Raw::Types;
 
 use Color;
-use Color::Data::CSS3 :colors;
+use Color::Names::CSS3 :colors;
 use DateTime::Format::RFC2822;
 use RandomColor;
 use JSON::Fast;
 
 use Evals;
 
+#use Pango::Context;
 use Pango::FontDescription;
+use Pango::Layout;
 
 use GDK::Threads;
 
@@ -33,7 +36,7 @@ use GTK::TextView;
 use GTK::Utils::MenuBuilder;
 
 constant SEED = 314159265358979;
-constant settingsFile = "$*HOME/.visual-grammar";
+constant settingsFile = "{ $*HOME }/.visual-grammar";
 
 my @method-blacklist = <TOP BUILDALL>;
 
@@ -195,8 +198,8 @@ class VisualGrammar {
             $m = $m.Array.map( *.Int );
           } else {
             $m = $p ~~ / (\w+) /;
-            if ($cn = $m ?? $m[0] !! Nil) {
-              $m = COLORS($cn).rgb;
+            if (my $cn = $m ?? $m[0] !! Nil) {
+              $m = Color::Names::CSS3.color-data($cn.lc)<rgb>;
             } else {
               say "Unknown color name encountered for '{.key}': '{$cn}'";
             }
@@ -273,10 +276,8 @@ class VisualGrammar {
   method !append-legend {
     self!append-m("Rules in grammar:\n");
     my $row = 1;
-
-    my @r = @rules.grep(* ne @method-blacklist.any);
+    my @r = @!rules.grep(* ne @method-blacklist.any);
     my $max = @r.map( *.chars ).max;
-
     my $pos = $!hpane.position - 10;
     my $col = 1;
 
@@ -284,32 +285,40 @@ class VisualGrammar {
     # This is only useful if the text description of the
     # font is not available. We currently do not set a font
     # on the Message view. That may change.
-    my $sc = $mview.style-context;
-    $sc.save;
-    $sc.state = 0;
-    my $fd = Pango::FontDescription.new(
-      cast(
-        PangoFontDescription,
-        $sc.get-property(GTK_STATE_FLAG_NORMAL, 'font')
-      )
-    );
-    $sc.restore;
-    my $pl = Pango::Layout.new;
-    $pl.font-desc = $fd;
+    # my $sc = $!mview.style-context;
+    # $sc.save;
+    # $sc.state = 0;
+    # my $v = $sc.get-property('font', GTK_STATE_FLAG_NORMAL).boxed;
+    # my $fd = Pango::FontDescription.new(
+    #   # This should NEVER be Nil, however it behooves the user to check.
+    #   # Insure such a check is performed when moved to its new home.
+    #   cast(PangoFontDescription, $v);
+    # );
+    # $sc.restore;
+
+    my $pl = Pango::Layout.new($!mview.create_pango_context);
+    $pl.font-desc = $!mview.style-context.get-font(GTK_STATE_FLAG_NORMAL);
 
     my $t;
-    do {
+    repeat {
         $pl.text = $t ~= "\t" ~ 'W' x $max;
-        $cnt++;
-    } while $pl.pixel-size[0] < $pos && $cnt++ < 9;
-    $cnt-- unless $cnt == 1;
+    } while $pl.get-pixel-size[0] < $pos && ++$col < 9;
+    $col-- unless $col == 1;
 
     for @r {
       self!append-m("\t");
-      self!append-m-tagged("\t{ .fmt("%-{$cnt}") }", $!tags.lookup($_));
-      self!append-m("\n") if !($row++ % $cnt);
-      LAST { self!append-m("\n") unless !(($row - 1) % $cnt) }
+      self!append-m-tagged(
+        sprintf(
+          "{ "%-{$max}s" }",
+          (' ' x ($max - .chars) / 2) ~ $_
+        ),
+        $!tags.lookup($_)
+      );
+      self!append-m("\n") if !($row++ % $col);
+      LAST { self!append-m("\n") unless !(($row - 1) % $col) }
     }
+
+    .unref for $pl;
   }
 
   method slurp-file($tv, $name) {
@@ -347,7 +356,7 @@ class VisualGrammar {
   }
 
   method !color-sel($v, :$bg = False) {
-    constant high-val     = 255
+    constant high-val     = 255;
     constant perfect-gray = (high-val / 2).Int;
     constant tolerance    = 20;
 
@@ -361,12 +370,17 @@ class VisualGrammar {
       my $tt = $bg.not ?? 'fg' !! 'bg';
       my $tto = $bg    ?? 'fg' !! 'bg';
 
+      # CStructs, and we don't have memory management in place for GtkPlus yet,
+      # so we have to handle this at the application level.
+      #
+      # "No, sir. I didn't like it" -- said the horse.
+      %!settings{"{$v.name}-{$tt}"}.free if %!settings{"{$v.name}-{$tt}"};
       %!settings{"{$v.name}-{$tt}"} = $ccd.rgba;
       if %!settings{"{$v.name}-{$tto}"} eqv $ccd.rgba {
         my $rgba = GTK::Compat::RGBA.new(
           |(high-val «-« $ccd.rgba.rgb)
         );
-        my $a = $rgba.rgb.sum / $rgb.elems;
+        my $a = $rgba.rgb.sum / $rgba.elems;
         if [&&](
           # Average Within tolerance of perfect gray
           $a ~~ perfect-gray - tolerance .. perfect-gray + tolerance,
@@ -374,8 +388,11 @@ class VisualGrammar {
           $rgba.rgb.grep(* ~~ $a - tolerance .. $a + tolerance) >= 2
         ) {
           # Switch to black for contrast.
-          $rgba = GTK::Compat::RGBA.new(0, 0, 0);
+          %!settings{"{$v.name}-{$tto}"}.free
+            if %!settings{"{$v.name}-{$tto}"};
+          %!settings{"{$v.name}-{$tto}"} = GTK::Compat::RGBA.new(0, 0, 0);
         }
+        $rgba.free;
       }
       self!setColors;
     }
