@@ -149,7 +149,7 @@ class VisualGrammar {
     }
 
     my $count = 0;
-    for @!rules.sort -> $r {
+    for @!rules -> $r {
       next if $r eq @method-blacklist.any;
       self!add-rule-color($r);
     }
@@ -413,13 +413,11 @@ class VisualGrammar {
     sub get_range ($match) {
       my $r;
       # The with blocks shouldn't be needed!
-      with $match.from {
-        with $match.to {
-          $r = (
-            $!tbuffer.get_iter_at_offset($match.from),
-            $!tbuffer.get_iter_at_offset($match.to)
-          );
-        }
+      if $match.from.defined && $match.to.defined {
+        $r = (
+          $!tbuffer.get_iter_at_offset($match.from),
+          $!tbuffer.get_iter_at_offset($match.to)
+        );
       }
       $r;
     }
@@ -490,7 +488,7 @@ class VisualGrammar {
     @tmp-rules.unshift: 'FAIL'
       unless $results<occurences>.not ||
              $results<occurences>[0].key eq 'TOP';
-    @!rules = @tmp-rules;
+    @!rules = $results<priority>.flat;
 
     self!update-colors;
     self!append-legend;

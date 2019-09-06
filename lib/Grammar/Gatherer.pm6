@@ -92,16 +92,15 @@ my class GathererGrammarHOW is Metamodel::GrammarHOW does Grammar::Gatherer::Wra
       @occurences.unshift: @occurences.pop
         if @occurences && @occurences[*-1].key eq 'TOP';
 
-      my %averages = gather for %lengths.pairs {
+      my %averages = (gather for %lengths.pairs {
         take .key => .value.max;
-      };
+      }).Hash;
 
       my %ret = (
         occurences => @occurences,
         averages   => %averages,
-        priority   => %averages.sort( -*.value ).map( *.keys )
+        priority   => %averages.sort( -*.value ).map( *.keys ).flat
       );
-      %ret.keys.say;
       %ret;
     }
 
