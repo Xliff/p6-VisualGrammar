@@ -69,8 +69,16 @@ my class GathererGrammarHOW is Metamodel::GrammarHOW does Grammar::Gatherer::Wra
 
     method results {
       my $last;
-      my @returnable = gather for @!results {
+
+      # If goint to attempt computations on parsing results, then this is
+      # the place to start. First, @!results will need to undergo a value
+      # change as it is currently just Match object, but that will have
+      # to change to either hashes or another special purpose object.
+      my %lengths;
+      my @occurences = gather for @!results {
         next if .value.to < 0;
+
+        %lengths{.key}.push: .value.to - .value.from;
         take $last if
           $last.defined                   &&
           .value.from != $last.value.from &&
@@ -81,9 +89,20 @@ my class GathererGrammarHOW is Metamodel::GrammarHOW does Grammar::Gatherer::Wra
         }
         $last = $_;
       }
-      @returnable.unshift: @returnable.pop
-        if @returnable && @returnable[*-1].key eq 'TOP';
-      @returnable;
+      @occurences.unshift: @occurences.pop
+        if @occurences && @occurences[*-1].key eq 'TOP';
+
+      my %averages = gather for %lengths.pairs {
+        take .key => .value.max;
+      };
+
+      my %ret = (
+        occurences => @occurences,
+        averages   => %averages,
+        priority   => %averages.sort( -*.value ).map( *.keys )
+      );
+      %ret.keys.say;
+      %ret;
     }
 
     method publish_method_cache($obj) {

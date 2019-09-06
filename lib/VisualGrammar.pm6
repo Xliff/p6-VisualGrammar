@@ -484,8 +484,12 @@ class VisualGrammar {
         DateTime::Format::RFC2822.to-string( DateTime.now )
       }:\n"
     ) if $timeout;
+
     my $results = run-grammar($!tview.text, $!gedit.text, @tmp-rules);
-    @tmp-rules.unshift: 'FAIL' unless $results.not || $results[0].key eq 'TOP';
+
+    @tmp-rules.unshift: 'FAIL'
+      unless $results<occurences>.not ||
+             $results<occurences>[0].key eq 'TOP';
     @!rules = @tmp-rules;
 
     self!update-colors;
@@ -502,12 +506,12 @@ class VisualGrammar {
 
     $!tview.buffer.remove_all_tags;
     my $failed = False;
-    if $results && $results[0].key eq 'TOP' {
-      self.apply-tags-from-match('TOP', $results[0].value);
+    if $results<occurences> && $results<occurences>[0].key eq 'TOP' {
+      self.apply-tags-from-match('TOP', $results<occurences>[0].value);
     } else {
       $failed = True;
       my $max = 0;
-      for $results.list {
+      for $results<occurences>.list {
         self.apply-tags-from-match(.key, .value);
         $max = max($max, .value.to)
       }

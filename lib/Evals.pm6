@@ -26,19 +26,22 @@ sub run-grammar($text, $gtext is copy, @rules) is export {
   my $nr = $gtext ~~ /^^ \s* [ <unit> \s+ ]? 'grammar' \s+ (\w+)/;
   my $name = $nr.defined ?? $nr[0] !! Nil;
   die "Cannot find grammar name!\n" without $name;
+
   if $nr<unit>.defined {
+    # Convert from unit form to block form.
     $gtext ~~ /^^ <unit> \s 'grammar' \s+ \w+ ';' (.+) $$/;
     $gtext = qq:to/G/.chomp
-my grammar { $name } \{
-\t{ $/[0].split(/\n/).join("\t\n") }
-\}
-G
+      my grammar { $name } \{
+      \t{ $/[0].split(/\n/).join("\t\n") }
+      \}
+      G
 
   } else {
+    # Insure grammar is scope limited.
     $gtext ~~ s/^^ (.+?) 'grammar'//;
     $gtext = "my { $gtext }";
   }
-  
+
   my $code = qq:to/CODE/.chomp;
 use Grammar::Gatherer;
 { $gtext }
