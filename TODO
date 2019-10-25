@@ -1,5 +1,6 @@
 √ Add ability to reload last save grammar and text file.
 √ Better grammar tracking, so that users can see where a grammar failed. See how Grammar::Tracer does its work and see if it can be adapted for this purpose.
++ Create an action class in Execs.pm to be used to track rule counts!
 - Fix legend to be a properly spaced grid (hint: check for largest rule name size!)
 - Check on algorithm for generating pleasing contrasting colors.
 - Check on algorithm for generating different "adjacent" colors.

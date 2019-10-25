@@ -17,7 +17,7 @@ sub format-code ($code) {
   @c.join("\n");
 }
 
-sub run-grammar($text, $gtext is copy, @rules) is export {
+sub run-grammar($text, $gtext is copy, @rules, %counts) is export {
 
   # -YYY- TODO: Extract grammar statement from $gtext to limit code injection
   # possibilities.
@@ -44,9 +44,17 @@ sub run-grammar($text, $gtext is copy, @rules) is export {
 
   my $code = qq:to/CODE/.chomp;
 use Grammar::Gatherer;
+class Action \{
+  has \%.counts;
+  method FALLBACK (\$name, |c) \{
+      \%!counts\{\$name\}++;
+  \}
+\}
+my \$a = Action.new;
 { $gtext }
 \@rules = { $name }.^methods(:local).map( *.name ).sort;
-{ $name }.parse(\$text);
+{ $name }.parse(\$text, actions => \$a);
+\%counts = \$a.counts;
 { $name }.HOW.results;
 CODE
 

@@ -476,14 +476,22 @@ class VisualGrammar {
     # Can put this behind an option.
     #self!append-m( "Evaluating:\n{ self!format-code($code) }" );
 
-    my @tmp-rules;
+    my (%rule-counts, @tmp-rules);
     self!append-m(
       "Auto-Refresh @ {
         DateTime::Format::RFC2822.to-string( DateTime.now )
       }:\n"
     ) if $timeout;
 
-    my $results = run-grammar($!tview.text, $!gedit.text, @tmp-rules);
+    my $results = run-grammar(
+      $!tview.text,
+      $!gedit.text,
+      @tmp-rules,
+      %rule-counts
+    );
+
+    say "Rule counts\n===========\n";
+    say "{$_}: %rule-counts{$_}" for %rule-counts.keys;
 
     @tmp-rules.unshift: 'FAIL'
       unless $results<occurences>.not ||
