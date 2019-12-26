@@ -18,7 +18,7 @@ use Pango::Layout;
 
 use GDK::Threads;
 
-use GTK::Compat::Signal;
+use GLib::Signal;
 
 use GTK::Application;
 use GTK::Box;
