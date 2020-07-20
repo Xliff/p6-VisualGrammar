@@ -657,10 +657,13 @@ class VisualGrammar {
       @a[* - 1].r = 0;
     });
 
-    GTK::Compat::Signal.connect-data($!hpane, 'notify::position', -> *@a {
+    # cw: As of 2020-07-15, can be re-written as:
+    #       $!hpane.notify('position').tap(...)
+    #     See p6-VTE for example
+    GLib::Signal.connect-data($!hpane, 'notify::position', -> *@a {
       %!settings<hpane-position> = $!hpane.position
     });
-    GTK::Compat::Signal.connect-data($!vpane, 'notify::position', -> *@a {
+    GLib::Signal.connect-data($!vpane, 'notify::position', -> *@a {
       %!settings<vpane-position> = $!vpane.position
     });
 
