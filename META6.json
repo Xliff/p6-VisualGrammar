@@ -2,7 +2,7 @@
     "depends": [
         "p6-GtkPlus",
         "Color::Names",
-        "RandomColor",
+        "RandomColor"
     ],
     "description": "A GtkPlus-based application for debugging grammars.",
     "version": "r0.3",
