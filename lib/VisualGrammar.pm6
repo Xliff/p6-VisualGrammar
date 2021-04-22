@@ -1,25 +1,19 @@
 use v6.c;
 
-use Pango::Raw::Types;
-use GTK::Compat::Types;
-use GTK::Raw::Types;
-
 use Color;
 use Color::Names::CSS3 :colors;
 use DateTime::Format::RFC2822;
 use RandomColor;
 use JSON::Fast;
 
-use Evals;
+use GTK::Raw::Types;
 
 #use Pango::Context;
 use Pango::FontDescription;
 use Pango::Layout;
-
+use GDK::RGBA;
 use GDK::Threads;
-
 use GLib::Signal;
-
 use GTK::Application;
 use GTK::Box;
 use GTK::CSSProvider;
@@ -32,8 +26,9 @@ use GTK::Pane;
 use GTK::ScrolledWindow;
 use GTK::TextTag;
 use GTK::TextView;
-
 use GTK::Utils::MenuBuilder;
+
+use Evals;
 
 constant SEED = 314159265358979;
 constant settingsFile = "{ $*HOME }/.visual-grammar";
@@ -80,10 +75,10 @@ class VisualGrammar {
     # These are defaults.
     %!config = (
       auto-delay     => 2,
-      TOP-color-bg   => GTK::Compat::RGBA.new-rgb(0, 0, 128),
-      FAIL-color-bg  => GTK::Compat::RGBA.new-rgb(255, 0, 0),
-      light-fg       => GTK::Compat::RGBA.new-rgb(230, 230, 230),
-      dark-fg        => GTK::Compat::RGBA.new-rgb(10, 10, 10),
+      TOP-color-bg   => GDK::RGBA.new-rgb(0, 0, 128),
+      FAIL-color-bg  => GDK::RGBA.new-rgb(255, 0, 0),
+      light-fg       => GDK::RGBA.new-rgb(230, 230, 230),
+      dark-fg        => GDK::RGBA.new-rgb(10, 10, 10),
     );
     %!config<TOP-color-fg FAIL-color-fg> = %!config<light-fg> xx 2;
     %!settings<grammar-edit-fg text-view-fg> = 'black' xx 2;
@@ -124,7 +119,7 @@ class VisualGrammar {
         %!config<dark-fg> !! %!config<light-fg>;
       %!colors{$r}<fg> = $color.rgb.list.any >= 200 ??
         %!config<dark-fg> !! %!config<light-fg>;
-      %!colors{$r}<bg> = GTK::Compat::RGBA.new-rgb( |$color.rgb );
+      %!colors{$r}<bg> = GDK::RGBA.new-rgb( |$color.rgb );
     }
 
     without $!tags.lookup($r) {
@@ -204,7 +199,7 @@ class VisualGrammar {
               say "Unknown color name encountered for '{.key}': '{$cn}'";
             }
           }
-          $p.value = GTK::Compat::RGBA( |$m ) if $m;
+          $p.value = GDK::RGBA( |$m ) if $m;
         }
 
         # Attach to %!settings
@@ -377,7 +372,7 @@ class VisualGrammar {
       %!settings{"{$v.name}-{$tt}"}.free if %!settings{"{$v.name}-{$tt}"};
       %!settings{"{$v.name}-{$tt}"} = $ccd.rgba;
       if %!settings{"{$v.name}-{$tto}"} eqv $ccd.rgba {
-        my $rgba = GTK::Compat::RGBA.new(
+        my $rgba = GDK::RGBA.new(
           |(high-val «-« $ccd.rgba.rgb)
         );
         my $a = $rgba.rgb.sum / $rgba.elems;
@@ -390,7 +385,7 @@ class VisualGrammar {
           # Switch to black for contrast.
           %!settings{"{$v.name}-{$tto}"}.free
             if %!settings{"{$v.name}-{$tto}"};
-          %!settings{"{$v.name}-{$tto}"} = GTK::Compat::RGBA.new(0, 0, 0);
+          %!settings{"{$v.name}-{$tto}"} = GDK::RGBA.new(0, 0, 0);
         }
         $rgba.free;
       }
