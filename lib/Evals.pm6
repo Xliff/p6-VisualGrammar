@@ -12,7 +12,7 @@ sub format-code ($code) {
   my @c;
   my $len = $code.lines.elems.Str.chars;
   for $code.lines.kv -> $k, $v {
-    @c.push: "{ $k.fmt("\%{$len}d") }: { $v }";
+    @c.push: "{ ($k + 1).fmt("\%{$len}d") }: { $v }";
   }
   @c.join("\n");
 }
@@ -23,7 +23,7 @@ sub run-grammar($text, $gtext is copy, @rules, %counts) is export {
   # possibilities.
 
   my token unit { 'unit' }
-  my $nr = $gtext ~~ /^^ \s* [ <unit> \s+ ]? 'grammar' \s+ (\w+)/;
+  my $nr = $gtext ~~ /^^ \s* [ <unit> \s+ ]? 'grammar' \s+ (<[\-\w]>+)/;
   my $name = $nr.defined ?? $nr[0] !! Nil;
   die "Cannot find grammar name!\n" without $name;
 
