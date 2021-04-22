@@ -2,7 +2,8 @@
     "depends": [
         "p6-GtkPlus",
         "Color::Names",
-        "RandomColor"
+        "RandomColor",
+	"DateTime::Format"
     ],
     "description": "A GtkPlus-based application for debugging grammars.",
     "version": "r0.3",
