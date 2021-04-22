@@ -1,3 +1,4 @@
+*.ref-bak
 lib/.precomp
 scripts/
 *.ipynb
